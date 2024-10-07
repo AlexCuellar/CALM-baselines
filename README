@@ -10,4 +10,4 @@ Adapted from https://github.com/abakisita/ros_dmp/tree/master/pydmps, choosing d
 Uses code adapted from https://github.com/nbfigueroa/ds-opt, one is allowed to choose dataset from a gui.  Perturbations and initial points are selected lines 54-67
 
 - ProMP
-Uses MP implementation from https://github.com/dfki-ric/movement_primitives, choosing dataset, initial points, and perturbation are set as command line arguments.  Running on messy_snake may looks like: python3 follow_from_csv.py -d messy_snake
+Requires installation of https://github.com/dfki-ric/movement_primitives, choosing dataset, initial points, and perturbation are set as command line arguments.  Running on messy_snake may looks like: python3 follow_from_csv.py -d messy_snake
