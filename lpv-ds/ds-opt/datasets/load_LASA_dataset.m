@@ -49,7 +49,7 @@ c = 0;
         return
     else
         %% preprocessing
-        load(['DataSet/' names{n}],'demos','dt') %loading the model
+        load(['lasaDataset_seds/Dataset/' names{n}],'demos','dt') %loading the model
         % Global Attractor of DS
         att_g = [0 0]';
 

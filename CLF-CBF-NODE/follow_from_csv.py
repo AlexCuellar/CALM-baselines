@@ -450,7 +450,7 @@ def draw(data):
 dataset_name = "messy_snake"
 
 data = CSV_Dataset("data/" + dataset_name + "/")
-data = lasa.DataSet.Worm # UNCOMMENT TO TEST ON lasa data
+# data = lasa.DataSet.Worm # UNCOMMENT TO TEST ON lasa data
 
 import csv
 

@@ -84,7 +84,7 @@ function [x xd t xT x_obs]=Simulation(x0,xT,fn_handle,varargin)
 %
 % Please send your feedbacks or questions to:
 %                           mohammad.khansari_at_epfl.ch
-
+disp("!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 %% parsing inputs
 if isempty(varargin)
     options = check_options();
@@ -151,11 +151,11 @@ if options.plot %plotting options
     sp = plot_results('i',[],x,xT,obs);
 end
 %% Simulation
+started_perturbation = false;
 i=1;
 while true
     %Finding xd using fn_handle.
     xd(:,i,:)=reshape(fn_handle(squeeze(x(:,i,:))-XT),[d 1 nbSPoint]);
-    
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     % This part if for the obstacle avoidance module
     if obs_bool
@@ -186,9 +186,41 @@ while true
     
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     %%% Integration
+    % disp("HERE????????")
+    % options.perturbation.type
+    if options.perturbation.type == "alex"
+        if i >= round(options.perturbation.t0/options.dt)+1 && i <= round(options.perturbation.tf/options.dt) && length(options.perturbation.dx)==d
+            num_trajs = size(xd,3);
+            if ~started_perturbation
+                dx_full = zeros(size(x(:,i,:)));
+                % dx_step = zeros(size(x(:,i,:)));
+                for traj = 1:num_trajs
+                    dx_full(:,:,traj) = options.perturbation.x_final - x(:,i,traj);
+                end
+                dx_step = dx_full/(options.perturbation.tf - options.perturbation.t0);
+                % dx_step = dx_full
+            end
+            started_perturbation = true;
+            xd(:,i,:) = dx_step;
+            % disp("ROUND: " + num2str(i))
+            % xd(:,i,end);
+            % options.perturbation.dx;
+            % xd(:,i,:) = dx_step;
+            % for traj = 1:num_trajs
+            %     disp("EACH TRAJ")
+            %     size(xd(:,i,traj))
+            %     size(dx_step)
+            %     xd(:,i,traj) = options.perturbation.dx;
+            % end
+            % disp("FULL")
+            % size(xd(:,i,:))
+        end
+    end
+    xd(:,i,:);
     x(:,i+1,:)=x(:,i,:)+xd(:,i,:)*options.dt;
     t(i+1)=t(i)+options.dt;
-    
+    t(i+1);
+    options.perturbation.type;
     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     % Applying perturbation if any
     switch options.perturbation.type
@@ -282,8 +314,8 @@ if ~isfield(options,'perturbation') % shall simulator plot the figure
     options.perturbation.type = '';
 else 
     if ~isfield(options.perturbation,'type') || ~isfield(options.perturbation,'t0') || ~isfield(options.perturbation,'dx') || ...
-        ((strcmpi(options.perturbation.type,'rcp') || strcmpi(options.perturbation.type,'tcp')) && ~isfield(options.perturbation,'tf')) || ...
-        (~strcmpi(options.perturbation.type,'rcp') && ~strcmpi(options.perturbation.type,'tcp') && ~strcmpi(options.perturbation.type,'rdp') && ~strcmpi(options.perturbation.type,'tdp'))
+        ((strcmpi(options.perturbation.type,'alex') || strcmpi(options.perturbation.type,'rcp') || strcmpi(options.perturbation.type,'tcp')) && ~isfield(options.perturbation,'tf')) || ...
+        (~strcmpi(options.perturbation.type,'alex') && ~strcmpi(options.perturbation.type,'rcp') && ~strcmpi(options.perturbation.type,'tcp') && ~strcmpi(options.perturbation.type,'rdp') && ~strcmpi(options.perturbation.type,'tdp'))
     
         disp('Invalid perturbation structure. The perturbation input is ignored!')
         options.perturbation.type = '';

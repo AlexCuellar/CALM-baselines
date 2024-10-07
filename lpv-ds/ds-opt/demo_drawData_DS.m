@@ -35,10 +35,14 @@ grid on
 
 % Draw Reference Trajectories
 [data, hp] = draw_mouse_data_on_DS(fig1, limits);
-
+save("datasets/periodic.mat", "data")
+size(data,2)
+for idx = 1:size(data,2)
+    data{idx}(1,1)
+    csvwrite(strcat("datasets/periodic_",int2str(idx),".csv"),data{idx}(1:2,:)');
+end
 % Process Drawn Data for DS learning
 [Data, Data_sh, att, x0_all, dt] = processDrawnData(data);
-
 % Position/Velocity Trajectories
 vel_samples = 10; vel_size = 0.5; 
 [h_data, h_att, h_vel] = plot_reference_trajectories_DS(Data, att, vel_samples, vel_size);

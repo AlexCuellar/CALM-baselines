@@ -84,7 +84,7 @@ function [x xd t xT x_obs]=Simulation(x0,xT,fn_handle,varargin)
 %
 % Please send your feedbacks or questions to:
 %                           mohammad.khansari_at_epfl.ch
-
+disp("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 %% parsing inputs
 if isempty(varargin)
     options = check_options();
