@@ -1,0 +1,13 @@
+This folder contains implmenetations of the four baselines used in "An Alignment-Based Approach to Learning Motions from Demonstrations".  Each folder contains a file "follow_from_csv.py" (or "follow_from_csv.m") which will run the method.  Each folder also contains a "data" folder containing the data for each demonstration set tested in the paper.  Here is an explanation of each method's implementation and how to run them: 
+
+- CLF-CBF_NODE: 
+Adapted from https://github.com/farhadnawaz/CLF-CBF-NODE, line 450 allows choosing which dataset to run, and line 453 allows running on a dataset from the LASA Handwriting Dataset.  Lines 354, 370-375 allow to set custom initial points or perturbations on the system
+
+- DMP:
+Adapted from https://github.com/abakisita/ros_dmp/tree/master/pydmps, choosing dataset, inital points, and perturbation are set as command line arguments.  Running on messy_snake may look like: "python3 follow_from_csv.py -d messy_snake_0_mean" (recall from the paper that DMPs can only learn from one demonstration, for which we use the TRACER mean trajectory of the demonstrations)
+
+- lpv-ds
+Uses code adapted from https://github.com/nbfigueroa/ds-opt, one is allowed to choose dataset from a gui.  Perturbations and initial points are selected lines 54-67
+
+- ProMP
+Uses MP implementation from https://github.com/dfki-ric/movement_primitives, choosing dataset, initial points, and perturbation are set as command line arguments.  Running on messy_snake may looks like: python3 follow_from_csv.py -d messy_snake
