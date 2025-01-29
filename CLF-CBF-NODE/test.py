@@ -10,8 +10,10 @@ import matplotlib.pyplot as plt
 import optax  # https://github.com/deepmind/optax
 from sklearn.preprocessing import MinMaxScaler
 from scipy import interpolate
+from pathlib import Path
+# from iflow.iflow.dataset import iros_dataset
 
-import pyLasaDataset as lasa
+# import pyLasaDataset as lasa
 from os import listdir
 from os.path import isfile, join
 from numpy import genfromtxt
@@ -28,28 +30,59 @@ class Demonstration:
         self.t = self.t.reshape((1,self.pos.shape[1]))
 
 class CSV_Dataset:
-    def __init__(self, file, pad = True):
+    def __init__(self, file, pad = True, npy_protocol = False):
         self.dt = .02
         self.name = file
-        onlyfiles = [file + f for f in listdir(file) if isfile(join(file, f))]
+        normalize = True
+        if npy_protocol:
+            data = np.load(file)
+            data_not_normalized = []
+            for i in range(data.shape[0]):
+                data_not_normalized.append(data[i, :, :])
+        else:
+            onlyfiles = [file + f for f in listdir(file) if isfile(join(file, f))]
+            data_original = []
+            for file in onlyfiles:
+                data_original.append(genfromtxt(file, delimiter=','))
+            max_len = max([x.shape[0] for x in data_original]) + 3 # the 3 is the padding that will get removed when we take velocity and acceleration
+            data_not_normalized = []
+            for demo in data_original:
+                data_not_normalized.append(np.pad(demo, ((0, max_len - demo.shape[0]), (0, 0)), 'edge'))
+
         demos_np = []
-        for file in onlyfiles:
-            demos_np.append(genfromtxt(file, delimiter=',').T)
-            demos_np[-1].shape
-        max_len = max([x.shape[1] for x in demos_np]) + 3 # the 3 is the padding that will get removed when we take velocity and acceleration
-        
+        if normalize:
+            trajs_reshaped = np.reshape(np.asarray(data_not_normalized), (len(data_not_normalized) * data_not_normalized[0].shape[0], data_not_normalized[0].shape[1]))
+            self.mean = np.mean(trajs_reshaped, axis=0)
+            self.std = np.std(trajs_reshaped, axis=0)
+            data_normalized = (data_not_normalized - self.mean) / self.std
+            demos_np = [one_demo.T for one_demo in data_normalized]
+        else:
+            demos_np = [one_demo.T for one_demo in data_not_normalized]
         self.demos = []
         for demo in demos_np:
-            demo_padded = np.pad(demo, ((0, 0), (0, max_len - demo.shape[1])), 'edge')
-            self.demos.append(Demonstration(demo_padded, self.dt))
+            self.demos.append(Demonstration(demo, self.dt))
+            
+    def unnormalize(self, motions):
+        new_motions = []
+        for motion in motions:
+            new_motions.append(motion*self.std + self.mean)
+        return new_motions
+    
+    def normalize(self, motions):
+        new_motions = []
+        for motion in motions:
+            new_motions.append((motion - self.mean)/self.std)
+        return new_motions
 
 def draw(data):
-    # # Each Data object has attributes dt and demos (For documentation,
-    # # refer original dataset repo:
-    # # https://bitbucket.org/khansari/lasahandwritingdataset/src/master/Readme.txt)
+
+    # Each Data object has attributes dt and demos (For documentation,
+    # refer original dataset repo:
+    # https://bitbucket.org/khansari/lasahandwritingdataset/src/master/Readme.txt)
     dt = data.dt
     demos = data.demos # list of 7 Demo objects, each corresponding to a
                             # repetition of the pattern
+
 
     # Each Demo object in demos list will have attributes pos, t, vel, acc
     # corresponding to the original .mat format described in
@@ -60,27 +93,11 @@ def draw(data):
     acc = demo_0.acc # np.ndarray, shape: (2,2000)
     t = demo_0.t # np.ndarray, shape: (1,2000)
 
-    # demos_resized = []
-    # start_t = [0, 5, 10, 15, 10, 5, 0]
-    # for i, demo in enumerate(demos):
-    #     new_demo = demo
-    #     new_demo.pos = demo.pos[:,start_t[i]:]
-    #     new_demo.vel = demo.vel[:,start_t[i]:]
-    #     new_demo.acc = demo.acc[:,start_t[i]:]
-    #     new_demo.t = demo.t[:,start_t[i]:]
-    #     print(new_demo.pos.shape)
-    #     print(new_demo.vel.shape)
-    #     print(new_demo.acc.shape)
-    #     print(new_demo.t.shape)
-
-    # demos
 
     # To visualise the data (2D position and velocity) use the plot_model utility
-    # lasa.utilities.plot_model(csv_data) # give any of the available
-
-    # for demo in demos:
-    #     plt.plot(demo.pos[0,:], demo.pos[1,:])
-    # plt.show()
+    # lasa.utilities.plot_model(data) # give any of the available
+                                                    # pattern data as argument
+                                                    
                                                     
     class Func(eqx.Module):
         mlp: eqx.nn.MLP
@@ -108,6 +125,24 @@ def draw(data):
         def __call__(self, t, y, args):
 
             return self.mlp(y)
+        
+
+    # class Func(eqx.Module):
+    #     mlp: eqx.nn.MLP
+
+    #     def __init__(self, data_size, width_size, depth, *, key, **kwargs):
+    #         super().__init__(**kwargs)
+    #         self.mlp = eqx.nn.MLP(
+    #             in_size=data_size,
+    #             out_size=data_size,
+    #             width_size=width_size,
+    #             depth=depth,
+    #             activation=jnn.softplus,
+    #             key=key,
+    #         )
+
+    #     def __call__(self, t, y, args):
+    #         return self.mlp(y) - y
 
     class Funcd(eqx.Module):
         mlp: eqx.nn.MLP
@@ -144,14 +179,15 @@ def draw(data):
             super().__init__(**kwargs)
             self.func = Func(data_size, width_size, depth, key=key)
 
-        def __call__(self, ts, y0):
+        @eqx.filter_jit
+        def __call__(self, ts, yd0):
             solution = diffrax.diffeqsolve(
                 diffrax.ODETerm(self.func),
                 diffrax.Tsit5(),
                 t0=ts[0],
                 t1=ts[-1],
                 dt0=ts[1] - ts[0],
-                y0=y0,
+                y0=yd0,
                 stepsize_controller=diffrax.PIDController(rtol=1e-3, atol=1e-6),
                 saveat=diffrax.SaveAt(ts=ts),
             )
@@ -221,14 +257,37 @@ def draw(data):
             vel_new = f_vel(ts_new)
             traj_process = traj_process.at[i, :, j].set(scale_state*traj_new)
             vel_process = vel_process.at[i, :, j].set(scale_state*vel_new)
-
     ## Train_Test_split
-
+    # ALEX CHANGE: Since there are so few IROS demonstrations, I train on all
     nTD = len(demos)
     traj_train = traj_process[1:nTD]
     vel_train = vel_process[1:nTD]
 
+    ## Multi_models
+
+    # train_indx = [0, 2, 4, 6]
+    # nTD = len(train_indx)
+    # traj_train = jnp.zeros((len(train_indx), nsamples, dim))
+    # vel_train = jnp.zeros((len(train_indx), nsamples, dim))
+    # c=0
+
+    # for i in train_indx:
+    #   traj_train = traj_train.at[c].set(traj_process[i])
+    #   vel_train = vel_train.at[c].set(vel_process[i])
+    #   c += 1
+
+    # test_indx = [1, 3, 5]
+    # traj_test = jnp.zeros((len(test_indx), nsamples, dim))
+    # vel_test = jnp.zeros((len(test_indx), nsamples, dim))
+    # c=0
+
+    # for i in test_indx:
+    #   traj_test = traj_test.at[c].set(traj_process[i])
+    #   vel_test = vel_test.at[c].set(vel_process[i])
+    #   c += 1
+
     traj_all_train = jnp.concatenate((traj_train, vel_train), axis=2)
+
 
     def dataloader(arrays, batch_size, *, key):
         dataset_size = arrays[0].shape[0]
@@ -244,32 +303,30 @@ def draw(data):
                 yield tuple(array[batch_perm] for array in arrays)
                 start = end
                 end = start + batch_size
-                
+
+    ########################## From LASA_2D_NODE.ipynb ######################         
     def main(
         dataset_size=nTD,
         batch_size=int(nTD/2),
-        lr_strategy=(3e-3,),
-        steps_strategy=(3000,),
-        length_strategy=(1,),
-        width_size=64,
+        lr_strategy=(3e-3, 3e-3, 3e-4),
+        steps_strategy=(5000, 5000, 5000),
+        length_strategy=(.3, .7, 1),
+        width_size=80,
         depth=3,
         seed=1000,
         plot=True,
         print_every=100,
-        save_every=500,
+        save_every=1000,
     ):
         key = jrandom.PRNGKey(seed)
         data_key, model_key, loader_key = jrandom.split(key, 3)
 
         ys = traj_train
         ts = tn
-        ys_dot = vel_train
-        ys_all = traj_all_train
 
         _, length_size, data_size = ys.shape
 
         model = NeuralODE(data_size, width_size, depth, key=model_key)
-
         # Training loop like normal.
         #
         # Only thing to notice is that up until step 500 we train on only the first 10% of
@@ -296,20 +353,14 @@ def draw(data):
 
         for lr, steps, length in zip(lr_strategy, steps_strategy, length_strategy):
             decay_scheduler = optax.cosine_decay_schedule(lr, decay_steps=steps, alpha=0.95)
-
+            # decay_scheduler = optax.piecewise_constant_schedule(init_value=lr, boundaries_and_scales={int(steps*0.25):0.5, int(steps*0.5):0.5, int(steps*0.75):0.5})
+            # decay_scheduler = optax.exponential_decay(init_value=lr, transition_steps=steps, decay_rate=0.98, transition_begin=int(steps*0.25), staircase=False)
+            # decay_scheduler = optax.linear_schedule(init_value=lr, end_value=0.005*lr, transition_steps=steps, transition_begin=int(steps*0.25))
             optim = optax.adabelief(learning_rate=decay_scheduler)
             opt_state = optim.init(eqx.filter(model, eqx.is_inexact_array))
             _ts = ts[: int(length_size * length)]
             _ys = ys[:, : int(length_size * length)]
             # _ys_dot = ys_dot[:, : int(length_size * length)]
-            _ys_all = ys_all_n[:, :int(length_size * length)]
-            ## Single trajectory
-            # for step in range(steps):
-            #   start = time.time()
-            #   loss, model, opt_state = make_step(_ts, _ys, _ys_dot, model, opt_state)
-            #   end = time.time()
-            #   if (step % print_every) == 0 or step == steps - 1:
-            #     print(f"Step: {step}, Loss: {loss}, Computation time: {end - start}")
             ## Batches
             for step, (yi,) in zip(
                 range(steps), dataloader((_ys,), batch_size, key=loader_key)
@@ -323,36 +374,29 @@ def draw(data):
                 # if (step % save_every) == 0 or step == steps - 1:
                 #   eqx.tree_serialise_leaves(file_name, model)
 
+        # if plot:
+        #     plt.plot(ts, ys[0, :, 0], c="dodgerblue", label="Real")
+        #     plt.plot(ts, ys[0, :, 1], c="dodgerblue")
+        #     model_y = model(ts, ys[0, 0])
+        #     plt.plot(ts, model_y[:, 0], c="crimson", label="Model")
+        #     plt.plot(ts, model_y[:, 1], c="crimson")
+        #     plt.legend()
+        #     plt.tight_layout()
+        #     plt.savefig("neural_ode.png")
+        #     plt.show()
+
         return ts, ys, model, time_all
 
+
     ts, ys, model, time_all = main()
-
-    # for train_indx in range(len(demos)):
-    #     plt.plot(posn[train_indx, :, 0], posn[train_indx, :, 1], c="dodgerblue", label="Real")
-    #     plt.plot(posn[train_indx, 0, 0], posn[train_indx, 0, 1], c="saddlebrown", marker='o', markersize = '12', label="Start")
-    #     plt.plot(posn[train_indx, -1, 0], posn[train_indx, -1, 1], c="black", marker='x', markersize = '12', label="Target")
-    #     model_y = model(ts, posn[train_indx, 0])
-    #     plt.plot(model_y[:, 0], model_y[:, 1], c="crimson", label="Model")
-    # dist_indx = 260
-    # plt.plot(model_y[dist_indx, 0], model_y[dist_indx, 1], c="black", marker='o', markersize = '12', label="Disturbance")
-    # # plt.legend()
-    # plt.tight_layout()
-    # # plt.savefig("neural_ode.png")
-    # plt.show()
-
-    # file_name = "Worm.eqx"
-    # eqx.tree_serialise_leaves(file_name, model)
-
-
-
-    # ############################################## CBF_CLF #################################################
+    ######################################################################################
 
     import numpy as np
     import cvxpy as cp
     
     motions = []
     starting_pts = [posn[indx, 0] for indx in range(len(demos))]
-    # starting_pts = [jnp.array([-3, 1.7])] # UNCOMMENT FOR CUSTOM INITIAL POINTS
+    # starting_pts = data.normalize([jnp.array([-3, 1.7])]) # UNCOMMENT FOR CUSTOM INITIAL POINTS
     for indx in range(len(starting_pts)):
         ys = posn
         _, length_size, data_size = ys.shape
@@ -369,7 +413,8 @@ def draw(data):
 
         dti = ts[1] - ts[0]
         dist_start, dist_end = int(1.7/dti), int(2.5/dti)
-        dist_endpoint = jnp.array([4.5, 0])
+        dist_endpoint = data.normalize([jnp.array([4.5, 0])])[0]
+        print(dist_start, dist_end, dist_endpoint)
         cmd_vel =jnp.array([[0, 0]])
         move_vector = jnp.array([0, 0])
         use_perturb = False # TURN TO TRUE TO HAVE A PERTURBATION
@@ -377,6 +422,7 @@ def draw(data):
 
             if i==dist_start and use_perturb:
                 move_vector = (x - dist_endpoint)/(dist_start - dist_end)
+                print("MOVE VECTOR: ", move_vector)
             x_t=np.asarray(x)
 
             # xref = np.asarray(ys[indx,i,:])
@@ -429,7 +475,7 @@ def draw(data):
 
             x = xnext
 
-            if(i%10==0):
+            if(i%1==0):
                 print(f"Time: {i}, Position: {x}")
             
         # from matplotlib.lines import Line2D
@@ -448,18 +494,20 @@ def draw(data):
     return motions, posn
 
 dataset_name = "messy_snake"
+path_name = "results/" + dataset_name + "/"
 
 data = CSV_Dataset("data/" + dataset_name + "/")
-# data = lasa.DataSet.Worm # UNCOMMENT TO TEST ON lasa data
-
 import csv
 
 motions, posn = draw(data)
+motions = data.unnormalize(motions)
+posn = np.array(data.unnormalize(posn))
 
 for i in range(posn.shape[0]):
     plt.plot(posn[i, :, 0], posn[i, :, 1], c="black")
 
 for motion in motions:
+    print(motion)
     plt.plot(motion[:, 0], motion[:, 1], c="red")
 
 plt.show()
